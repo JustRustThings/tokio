@@ -249,7 +249,7 @@ use std::future::Future;
 use std::io;
 use std::path::Path;
 use std::pin::Pin;
-use std::process::{Command as StdCommand, ExitStatus, Output, Stdio};
+use std::process::{Child as StdChild, Command as StdCommand, ExitStatus, Output, Stdio};
 use std::task::{ready, Context, Poll};
 
 #[cfg(unix)]
@@ -860,8 +860,27 @@ impl Command {
     /// On Unix platforms this method will fail with `std::io::ErrorKind::WouldBlock`
     /// if the system process limit is reached (which includes other applications
     /// running on the system).
+    #[inline]
     pub fn spawn(&mut self) -> io::Result<Child> {
-        imp::spawn_child(&mut self.std).map(|spawned_child| Child {
+        self.spawn_with(StdCommand::spawn)
+    }
+
+    /// Executes the command as a child process with a custom spawning function,
+    /// returning a handle to it.
+    ///
+    /// This is identical to [`Self::spawn`] in every aspect except the spawn:
+    /// here it customizable through the `with` parameter instead of defaulting
+    /// to the usual spawn. In fact, [`Self::spawn`] is just [`Self::spawn_with`]
+    /// with [`StdCommand::spawn`].
+    ///
+    /// This is useful mostly under Windows for now, since the platform exposes
+    /// special APIs to configure child processes when spawning them with various
+    /// attributes that customize the exact behavior of the spawn operation.
+    pub fn spawn_with(
+        &mut self,
+        with: impl Fn(&mut StdCommand) -> io::Result<StdChild>,
+    ) -> io::Result<Child> {
+        imp::spawn_child_with(&mut self.std, with).map(|spawned_child| Child {
             child: FusedChild::Child(ChildDropGuard {
                 inner: spawned_child.child,
                 kill_on_drop: self.kill_on_drop,
